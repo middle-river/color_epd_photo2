@@ -185,8 +185,9 @@ void setup() {
       esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL, ESP_PD_OPTION_OFF);
       esp_deep_sleep_start();
     }
+  } else {
+    low_battery_counter = 0;
   }
-  low_battery_counter = 0;
 
   // Determine the mode.
   enum Mode {NONE, CONFIG, TRANSFER, FORWARD, BACKWARD} mode = NONE;

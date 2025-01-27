@@ -1,62 +1,52 @@
 #!/usr/bin/python3
+# Find the palette which minimizes the errors.
 
 from PIL import Image
 import colorsys
 import numpy as np
 import sys
 
-FINAL_PALETTE = [0, 0, 0, 255, 255, 255, 0, 255, 0, 0, 0, 255, 255, 0, 0, 255, 255, 0, 255, 127, 0]
-INITIAL_COLORS = np.array([(7, 7, 7), (255, 255, 255), (0, 255, 0), (0, 0, 255), (255, 0, 0), (255, 255, 0), (255, 127, 0)], float)
-MAX_ITERATIONS = 10
-RGB_TOLERANCE = 3
-HSV_RANGE = np.array([0.03, 0.5, 0.5])
-BACKGROUND_COLOR = (255, 255, 255)  # This color is ignored.
+FINAL_PALETTE = [0, 0, 0, 255, 255, 255, 0, 255, 0, 0, 0, 255, 255, 0, 0, 255, 255, 0, 255, 127, 0]  # For 7 colors.
+#FINAL_PALETTE = [0, 0, 0, 255, 255, 255, 0, 255, 0, 0, 0, 255, 255, 0, 0, 255, 255, 0]  # For 6 colors.
 
-def change_color(target, original, range):
-  trg_hsv = np.array(colorsys.rgb_to_hsv(*(target / 255.0)))
-  org_hsv = np.array(colorsys.rgb_to_hsv(*(original / 255.0)))
-  new_hsv = np.clip(trg_hsv, org_hsv - range, org_hsv + range)
-  return np.array(colorsys.hsv_to_rgb(*new_hsv)) * 255.0
+def make_palette(s, v):
+  pal = []
+  pal.append(colorsys.hsv_to_rgb(0.0, 0.0, 0.1))  # Black.
+  pal.append(colorsys.hsv_to_rgb(0.0, 0.0, 0.9))  # White.
+  for h in [1 / 3, 2 / 3, 0.0, 1 / 6, 1 / 12]:
+    pal.append(colorsys.hsv_to_rgb(h, s, v))
+  #pal.pop()  # For 6 colors.
+  return np.array(pal) * 255
 
-def optimize_palette(img): 
-  pixels = []
-  for y in range(img.size[1]):
-    for x in range(img.size[0]):
-      p = img.getpixel((x, y))
-      if p != BACKGROUND_COLOR:
-        pixels.append(p)
-  pixels = np.array(pixels)
-
-  colors = INITIAL_COLORS
-  colors *= np.mean(pixels, axis=0) / 255.0
-  for iter in range(MAX_ITERATIONS):
-    print('# Iteration=%d' % iter, file=sys.stderr)
-    sum_colors = colors.copy()
-    num_colors = np.ones(colors.shape[0], np.int32)  # for avoiding division by zero.
-    for i in range(len(pixels)):
-      c = np.argmin(np.linalg.norm(colors - pixels[i], axis=1))
-      sum_colors[c] += pixels[i]
-      num_colors[c] += 1
-    sum_colors /= num_colors[:, np.newaxis]
-    new_colors = np.array([change_color(sum_colors[c], INITIAL_COLORS[c], HSV_RANGE) for c in range(len(colors))])
-    print('Distribution: %s' % str(num_colors), file=sys.stderr)
-    print('Palette: %s' % str(new_colors), file=sys.stderr)
-    if np.allclose(new_colors, colors, atol=RGB_TOLERANCE):
-      break
-    colors = new_colors
-
-  pal = list(colors.astype(int).flatten())
-  pal += pal[-3:] * (256 - len(pal) // 3)
-  return pal
+def calc_errors(pal, img): 
+  pixels = np.array(img, dtype=float).reshape((-1, 3))
+  err = np.mean(np.min(np.linalg.norm(np.expand_dims(pixels, 1) - pal, axis=2), axis=1))
+  return err
 
 def main():
-  img = Image.open('/dev/stdin')
-  pal = optimize_palette(img)
+  assert len(sys.argv) == 3, 'usage: %s <input file> <output file>' % sys.argv[0]
+  inpfile, outfile = sys.argv[1:]
+  img = Image.open(inpfile)
+
+  best_s = None
+  best_v = None
+  best_err = float('inf')
+  for s in [0.50, 0.60, 0.70]:
+    for v in [0.60, 0.65, 0.70]:
+      pal = make_palette(s, v)
+      err = calc_errors(pal, img)
+      if err < best_err:
+        best_err = err
+        best_s = s
+        best_v = v
+  print('%s\th=%f/v=%f' % (inpfile, best_s, best_v), file=sys.stderr)
+  pal = list(make_palette(best_s, best_v).reshape((-1,)).astype(int))
+
   tmp = Image.new('P', (1, 1))
-  tmp.putpalette(pal)
+  tmp.putpalette(pal + pal[-3:] * (256 - len(pal) // 3))
   img = img.quantize(palette=tmp)
   img.putpalette(FINAL_PALETTE + FINAL_PALETTE[-3:] * (256 - len(FINAL_PALETTE) // 3))
-  img.save('/dev/stdout', 'png')
+  img.save(outfile)
 
 if __name__ == '__main__':
   main()
